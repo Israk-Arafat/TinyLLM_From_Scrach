@@ -1,9 +1,9 @@
 """Main training loop."""
 from __future__ import annotations
 
-import os
 import logging
 from pathlib import Path
+from typing import List
 
 import torch
 from torch.utils.data import DataLoader
@@ -34,12 +34,33 @@ class Trainer:
         self.device = device
         self._step = 0
 
+        self._use_amp = cfg.get("use_amp", True) and device.type == "cuda"
+        # bfloat16 is preferred on A100 (no overflow risk, no loss scaling needed)
+        self._amp_dtype = torch.bfloat16
+        self._scaler = torch.cuda.amp.GradScaler(enabled=False)  # not needed for bfloat16
+
+        # Validation batches are pre-materialised once to avoid re-streaming from HF
+        self._val_batches: List[dict] | None = None
+
+    def _prefetch_val_batches(self) -> None:
+        max_val_batches = self.cfg.get("max_val_batches", 100)
+        logger.info("Pre-materialising %d validation batches...", max_val_batches)
+        self._val_batches = []
+        for i, batch in enumerate(self.val_loader):
+            if i >= max_val_batches:
+                break
+            self._val_batches.append({k: v.to(self.device) for k, v in batch.items()})
+        logger.info("Cached %d validation batches", len(self._val_batches))
+
     def train(self) -> None:
         grad_accum = self.cfg.get("gradient_accumulation_steps", 1)
         max_steps = self.cfg["max_steps"]
         max_grad_norm = self.cfg.get("max_grad_norm", 1.0)
         checkpoint_dir = Path(self.cfg.get("checkpoint_dir", "checkpoints"))
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        # Pre-materialise validation set before training starts
+        self._prefetch_val_batches()
 
         self.model.train()
         self.optimizer.zero_grad()
@@ -48,11 +69,13 @@ class Trainer:
             if self._step >= max_steps:
                 break
 
-            input_ids = batch["input_ids"].unsqueeze(0).to(self.device)
-            labels = batch["labels"].unsqueeze(0).to(self.device)
+            input_ids = batch["input_ids"].to(self.device)
+            labels = batch["labels"].to(self.device)
 
-            outputs = self.model(input_ids, labels=labels)
-            loss = outputs["loss"] / grad_accum
+            with torch.autocast(device_type=self.device.type, dtype=self._amp_dtype, enabled=self._use_amp):
+                outputs = self.model(input_ids, labels=labels)
+                loss = outputs["loss"] / grad_accum
+
             loss.backward()
 
             if (self._step + 1) % grad_accum == 0:
@@ -62,8 +85,10 @@ class Trainer:
                 self.optimizer.zero_grad()
 
             if self._step % self.cfg.get("eval_interval", 500) == 0:
-                val_loss = evaluate(self.model, self.val_loader, self.device)
-                logger.info("step=%d  train_loss=%.4f  val_loss=%.4f", self._step, loss.item() * grad_accum, val_loss)
+                val_loss = evaluate(self.model, self._val_batches, self.device,
+                                    use_amp=self._use_amp, amp_dtype=self._amp_dtype)
+                logger.info("step=%d  train_loss=%.4f  val_loss=%.4f",
+                            self._step, loss.item() * grad_accum, val_loss)
                 self.model.train()
 
             if self._step % self.cfg.get("save_interval", 2000) == 0 and self._step > 0:

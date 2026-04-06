@@ -30,9 +30,25 @@ Training a ~300M-parameter transformer language model from scratch on the [SlimP
 ```bash
 pip install -r requirements.txt
 
+# Add HF_TOKEN in .env file
+HF_TOKEN=hf_your_token_here
+
 # Train
 python scripts/train.py --config configs/train_config.yaml
 
 # Generate
 python scripts/generate.py --prompt "Once upon a time"
 ```
+
+# For Google Colab
+!git clone https://github.com/Israk-Arafat/TinyLLM_From_Scrach.git
+%cd TinyLLM_From_Scrach
+!pip install -r requirements.txt
+import torch
+print(torch.cuda.is_available()) 
+
+# Add HF_TOKEN in .env file
+HF_TOKEN=hf_your_token_here
+
+# train, pointing checkpoints at Drive
+!python scripts/train.py --checkpoint-dir /content/drive/MyDrive/tinyllm_checkpoints

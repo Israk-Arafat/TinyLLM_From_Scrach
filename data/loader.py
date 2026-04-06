@@ -1,14 +1,15 @@
 """Stream SlimPajama and build packed token dataloaders."""
 from __future__ import annotations
 
-from torch.utils.data import DataLoader
+import torch
+from torch.utils.data import DataLoader, IterableDataset
 
 from .cleaner import clean_sample
 from .tokenizer import load_tokenizer
 from .packing import TokenPacker
 
 
-def build_dataloaders(data_cfg: dict) -> tuple[DataLoader, DataLoader]:
+def build_dataloaders(data_cfg: dict, batch_size: int = 1) -> tuple[DataLoader, DataLoader]:
     """Return (train_loader, val_loader) from a data config dict."""
     from datasets import load_dataset
 
@@ -18,13 +19,11 @@ def build_dataloaders(data_cfg: dict) -> tuple[DataLoader, DataLoader]:
         data_cfg["dataset_name"],
         split=data_cfg["split"],
         streaming=data_cfg.get("streaming", True),
-        trust_remote_code=True,
     )
     val_ds = load_dataset(
         data_cfg["dataset_name"],
         split=data_cfg["val_split"],
         streaming=data_cfg.get("streaming", True),
-        trust_remote_code=True,
     )
 
     def process(dataset):
@@ -38,10 +37,6 @@ def build_dataloaders(data_cfg: dict) -> tuple[DataLoader, DataLoader]:
             yield from chunks
         yield from packer.flush()
 
-    # Wrap generators as IterableDataset
-    from torch.utils.data import IterableDataset
-    import torch
-
     class _ChunkDataset(IterableDataset):
         def __init__(self, ds):
             self._ds = ds
@@ -52,12 +47,17 @@ def build_dataloaders(data_cfg: dict) -> tuple[DataLoader, DataLoader]:
                 labels = torch.tensor(chunk[1:], dtype=torch.long)
                 yield {"input_ids": input_ids, "labels": labels}
 
+    # pin_memory speeds up CPU→GPU transfers when num_workers > 0
     train_loader = DataLoader(
         _ChunkDataset(train_ds),
-        batch_size=None,  # batching handled upstream via gradient accumulation
+        batch_size=batch_size,
+        pin_memory=True,
+        num_workers=0,
     )
     val_loader = DataLoader(
         _ChunkDataset(val_ds),
-        batch_size=None,
+        batch_size=batch_size,
+        pin_memory=True,
+        num_workers=0,
     )
     return train_loader, val_loader

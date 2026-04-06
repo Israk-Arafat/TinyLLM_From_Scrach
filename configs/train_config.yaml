@@ -8,8 +8,11 @@ training:
   weight_decay: 0.1
   max_grad_norm: 1.0
   eval_interval: 500
+  max_val_batches: 100
   save_interval: 2000
   checkpoint_dir: checkpoints/
   log_dir: logs/
+  use_amp: true # bfloat16 autocast — ~2× faster on A100, no loss scaling needed
+  compile: false # torch.compile — adds ~2 min startup but improves throughput; need more testing
   use_wandb: false
   wandb_project: tinyllm

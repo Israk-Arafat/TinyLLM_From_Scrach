@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import math
+from typing import List
 
 import torch
-from torch.utils.data import DataLoader
 
 from model import Transformer
 
@@ -12,20 +12,20 @@ from model import Transformer
 @torch.no_grad()
 def evaluate(
     model: Transformer,
-    val_loader: DataLoader,
+    val_batches: List[dict],
     device: torch.device,
-    max_batches: int = 100,
+    use_amp: bool = False,
+    amp_dtype: torch.dtype = torch.bfloat16,
 ) -> float:
-    """Return mean validation loss over up to `max_batches` batches."""
+    """Return mean validation loss over pre-materialised validation batches."""
     model.eval()
     total_loss = 0.0
     count = 0
-    for i, batch in enumerate(val_loader):
-        if i >= max_batches:
-            break
-        input_ids = batch["input_ids"].unsqueeze(0).to(device)
-        labels = batch["labels"].unsqueeze(0).to(device)
-        outputs = model(input_ids, labels=labels)
+    for batch in val_batches:
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+            outputs = model(input_ids, labels=labels)
         total_loss += outputs["loss"].item()
         count += 1
     return total_loss / max(1, count)
