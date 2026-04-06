@@ -4,7 +4,7 @@ data:
   split: train
   val_split: validation
   tokenizer_name: cl100k_base
-  chunk_size: 512
+  chunk_size: 2048
   min_text_length: 50
   num_workers: 4
   buffer_size: 10000

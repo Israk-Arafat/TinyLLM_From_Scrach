@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-config", default="configs/train_config.yaml")
     parser.add_argument("--data-config", default="configs/data_config.yaml")
     parser.add_argument("--checkpoint-dir", default=None, help="Override checkpoint_dir from train config")
+    parser.add_argument("--resume", default=None, help="Path to a .pt checkpoint to resume training from")
     return parser.parse_args()
 
 
@@ -81,6 +82,8 @@ def main() -> None:
         cfg=train_cfg,
         device=device,
     )
+    if args.resume:
+        trainer.resume_from_checkpoint(args.resume)
     trainer.train()
 
 

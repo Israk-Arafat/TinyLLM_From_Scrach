@@ -47,10 +47,16 @@ class TransformerBlock(nn.Module):
         self.ln2 = RMSNorm(cfg.d_model)
         self.ff = SwiGLU(cfg.d_model, cfg.d_ff)
 
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln1(x), freqs_cis)
+    def forward(
+        self,
+        x: torch.Tensor,
+        freqs_cis: torch.Tensor,
+        past_kv: tuple | None = None,
+    ) -> tuple[torch.Tensor, tuple]:
+        attn_out, new_kv = self.attn(self.ln1(x), freqs_cis, past_kv=past_kv)
+        x = x + attn_out
         x = x + self.ff(self.ln2(x))
-        return x
+        return x, new_kv
 
 
 class Transformer(nn.Module):
@@ -90,10 +96,22 @@ class Transformer(nn.Module):
         self,
         input_ids: torch.Tensor,
         labels: torch.Tensor | None = None,
+        past_kv: list | None = None,
+        use_cache: bool = False,
     ) -> dict[str, torch.Tensor]:
+        T = input_ids.shape[1]
+        past_len = past_kv[0][0].shape[2] if past_kv is not None else 0
+
         x = self.embeddings(input_ids)
-        for block in self.blocks:
-            x = block(x, self.freqs_cis)
+        freqs_slice = self.freqs_cis[past_len : past_len + T]
+
+        new_past_kv: list = []
+        for i, block in enumerate(self.blocks):
+            layer_past = past_kv[i] if past_kv is not None else None
+            x, layer_kv = block(x, freqs_slice, past_kv=layer_past)
+            if use_cache:
+                new_past_kv.append(layer_kv)
+
         x = self.ln_f(x)
         logits = self.lm_head(x)
 
@@ -105,6 +123,8 @@ class Transformer(nn.Module):
                 ignore_index=-100,
             )
             result["loss"] = loss
+        if use_cache:
+            result["past_kv"] = new_past_kv
         return result
 
     def num_parameters(self) -> int:

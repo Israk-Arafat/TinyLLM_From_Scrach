@@ -1,10 +1,10 @@
 model:
   vocab_size: 100277
-  context_length: 512
+  context_length: 2048
   d_model: 1024
   n_heads: 16
   n_layers: 24
-  d_ff: 2730 # SwiGLU uses 3 matrices: 2730 ≈ (2/3)*4096 keeps ~same total params as d_ff=4096 with 2 matrices
+  d_ff: 2816 # SwiGLU: (8/3 * d_model) rounded to nearest multiple of 256 for hardware alignment
   dropout: 0.1
   tie_weights: true
   rope_theta: 10000.0

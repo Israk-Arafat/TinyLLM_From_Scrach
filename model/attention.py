@@ -36,7 +36,12 @@ class CausalSelfAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model, bias=False)
         self.resid_dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        freqs_cis: torch.Tensor,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         B, T, C = x.shape
         q, k, v = self.qkv(x).split(C, dim=-1)
 
@@ -45,14 +50,18 @@ class CausalSelfAttention(nn.Module):
 
         q, k, v = reshape(q), reshape(k), reshape(v)
 
-        # Apply RoPE to queries and keys (not values)
+        # Apply RoPE to queries and keys (freqs_cis already sliced to current positions)
         q = apply_rope(q, freqs_cis)
         k = apply_rope(k, freqs_cis)
+
+        if past_kv is not None:
+            k = torch.cat([past_kv[0], k], dim=2)
+            v = torch.cat([past_kv[1], v], dim=2)
 
         out = F.scaled_dot_product_attention(
             q, k, v,
             dropout_p=self.dropout if self.training else 0.0,
-            is_causal=True,
+            is_causal=past_kv is None,
         )
         out = out.transpose(1, 2).contiguous().view(B, T, C)
-        return self.resid_dropout(self.out_proj(out))
+        return self.resid_dropout(self.out_proj(out)), (k, v)

@@ -13,6 +13,6 @@ training:
   checkpoint_dir: checkpoints/
   log_dir: logs/
   use_amp: true # bfloat16 autocast — ~2× faster on A100, no loss scaling needed
-  compile: false # torch.compile — adds ~2 min startup but improves throughput; need more testing
+  compile: true 
   use_wandb: false
   wandb_project: tinyllm

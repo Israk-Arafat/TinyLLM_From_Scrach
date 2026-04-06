@@ -7,11 +7,11 @@ from dataclasses import dataclass
 @dataclass
 class ModelConfig:
     vocab_size: int = 100277
-    context_length: int = 512
+    context_length: int = 2048
     d_model: int = 1024
     n_heads: int = 16
     n_layers: int = 24
-    d_ff: int = 2730
+    d_ff: int = 2816
     dropout: float = 0.1
     tie_weights: bool = True
     rope_theta: float = 10000.0  # RoPE base frequency
