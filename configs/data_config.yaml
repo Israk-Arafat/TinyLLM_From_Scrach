@@ -3,7 +3,7 @@ data:
   streaming: true
   split: train
   val_split: validation
-  tokenizer_name: meta-llama/Llama-2-7b-hf # or any HF tokenizer
+  tokenizer_name: cl100k_base
   chunk_size: 512
   min_text_length: 50
   num_workers: 4

@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import torch
-from transformers import PreTrainedTokenizerBase
 
+from data.tokenizer import TiktokenTokenizer
 from model import Transformer
 
 
 @torch.no_grad()
 def generate(
     model: Transformer,
-    tokenizer: PreTrainedTokenizerBase,
+    tokenizer: TiktokenTokenizer,
     prompt: str,
     max_new_tokens: int = 200,
     temperature: float = 1.0,
@@ -22,7 +22,8 @@ def generate(
         device = next(model.parameters()).device
 
     model.eval()
-    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    prompt_ids = tokenizer.encode(prompt)
+    input_ids = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)
     context_length = model.cfg.context_length
 
     for _ in range(max_new_tokens):
@@ -46,5 +47,5 @@ def generate(
         if next_token.item() == tokenizer.eos_token_id:
             break
 
-    generated_ids = input_ids[0, len(tokenizer.encode(prompt)) :].tolist()
-    return prompt + tokenizer.decode(generated_ids, skip_special_tokens=True)
+    generated_ids = input_ids[0, len(prompt_ids) :].tolist()
+    return prompt + tokenizer.decode(generated_ids)

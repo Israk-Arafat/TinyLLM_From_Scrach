@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 @dataclass
 class ModelConfig:
-    vocab_size: int = 32000
+    vocab_size: int = 100277
     context_length: int = 512
     d_model: int = 1024
     n_heads: int = 16
