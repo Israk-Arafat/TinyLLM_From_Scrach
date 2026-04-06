@@ -20,9 +20,10 @@ def _apply_sampling(
         logits = logits.masked_fill(logits < values[:, -1:], float("-inf"))
     if top_p < 1.0:
         sorted_logits, sorted_idx = torch.sort(logits, descending=True)
-        cum_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
-        # Remove tokens whose cumulative probability exceeds top_p
-        remove = (cum_probs - torch.softmax(sorted_logits, dim=-1)) > top_p
+        probs_sorted = torch.softmax(sorted_logits, dim=-1)
+        cum_probs = torch.cumsum(probs_sorted, dim=-1)
+        # Remove tokens where the cumulative mass *before* this token exceeds top_p,
+        remove = (cum_probs - probs_sorted) > top_p
         sorted_logits[remove] = float("-inf")
         logits = torch.zeros_like(logits).scatter_(1, sorted_idx, sorted_logits)
     return logits

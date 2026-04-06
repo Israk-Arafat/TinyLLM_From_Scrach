@@ -59,6 +59,15 @@ def main() -> None:
     logging.info("Using device: %s", device)
 
     model_cfg = ModelConfig.from_dict(model_cfg_dict)
+
+    chunk_size = data_cfg.get("chunk_size")
+    if chunk_size != model_cfg.context_length:
+        raise ValueError(
+            f"data_config chunk_size ({chunk_size}) must equal "
+            f"model_config context_length ({model_cfg.context_length}). "
+            "Update configs/data_config.yaml to match."
+        )
+
     model = Transformer(model_cfg)
     logging.info("Model parameters: %s", f"{model.num_parameters():,}")
 

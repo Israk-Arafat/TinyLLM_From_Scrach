@@ -7,7 +7,7 @@ Training a ~400M-parameter transformer language model from scratch on the [SlimP
 1. **Data loading** — stream SlimPajama without downloading the full dataset
 2. **Cleaning** — filter empty/short/junk samples
 3. **Tokenization** — convert text to token IDs with a pretrained tokenizer
-4. **Packing** — pack tokens into fixed 512-token chunks
+4. **Packing** — pack tokens into fixed 2048-token chunks
 5. **Training** — next-token prediction with a decoder-only transformer
 6. **Evaluation** — track validation loss during training
 7. **Generation** — prompt the trained model to continue text
@@ -34,10 +34,13 @@ pip install -r requirements.txt
 HF_TOKEN=hf_your_token_here
 
 # Train
-python scripts/train.py --config configs/train_config.yaml
+python scripts/train.py --train-config configs/train_config.yaml
+
+# Resume from checkpoint
+python scripts/train.py --train-config configs/train_config.yaml --resume checkpoints/step_10000.pt
 
 # Generate
-python scripts/generate.py --prompt "Once upon a time"
+python scripts/generate.py --checkpoint checkpoints/final.pt --prompt "Once upon a time"
 ```
 
 # For Google Colab
@@ -56,4 +59,4 @@ else:
 HF_TOKEN=hf_your_token_here
 
 # train, pointing checkpoints at Drive
-!python scripts/train.py --checkpoint-dir /content/drive/MyDrive/tinyllm_checkpoints
+!python scripts/train.py --train-config configs/train_config.yaml --checkpoint-dir /content/drive/MyDrive/tinyllm_checkpoints

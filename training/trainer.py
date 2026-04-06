@@ -43,7 +43,6 @@ class Trainer:
         self._use_amp = cfg.get("use_amp", True) and device.type == "cuda"
         # bfloat16 is preferred on A100 (no overflow risk, no loss scaling needed)
         self._amp_dtype = torch.bfloat16
-        self._scaler = torch.amp.GradScaler("cuda", enabled=False)  # not needed for bfloat16
 
         # Validation batches are pre-materialised once to avoid re-streaming from HF
         self._val_batches: List[dict] | None = None

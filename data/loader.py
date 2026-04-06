@@ -47,17 +47,18 @@ def build_dataloaders(data_cfg: dict, batch_size: int = 1) -> tuple[DataLoader, 
                 labels = torch.tensor(chunk[1:], dtype=torch.long)
                 yield {"input_ids": input_ids, "labels": labels}
 
-    # pin_memory speeds up CPU→GPU transfers when num_workers > 0
+    # num_workers=0: streaming IterableDataset does not support multi-process loading
+    num_workers = data_cfg.get("num_workers", 0)
     train_loader = DataLoader(
         _ChunkDataset(train_ds),
         batch_size=batch_size,
         pin_memory=True,
-        num_workers=0,
+        num_workers=num_workers,
     )
     val_loader = DataLoader(
         _ChunkDataset(val_ds),
         batch_size=batch_size,
         pin_memory=True,
-        num_workers=0,
+        num_workers=num_workers,
     )
     return train_loader, val_loader
