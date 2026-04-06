@@ -60,7 +60,7 @@ class Trainer:
 
     def resume_from_checkpoint(self, path: str) -> None:
         """Load model, optimizer, scheduler and step counter from a saved checkpoint."""
-        ckpt = torch.load(path, map_location=self.device, weights_only=False)
+        ckpt = torch.load(path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(ckpt["model_state_dict"])
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         if "scheduler_state_dict" in ckpt:
@@ -94,7 +94,7 @@ class Trainer:
         self.optimizer.zero_grad()
 
         for batch in self.train_loader:
-            if self._step >= max_steps:
+            if self._opt_step >= max_steps:
                 break
 
             input_ids = batch["input_ids"].to(self.device)
@@ -113,19 +113,19 @@ class Trainer:
                 self.optimizer.zero_grad()
                 self._opt_step += 1
 
-            if self._opt_step % self.cfg.get("eval_interval", 500) == 0 and self._opt_step > 0:
-                val_loss = evaluate(self.model, self._val_batches, self.device,
-                                    use_amp=self._use_amp, amp_dtype=self._amp_dtype)
-                train_loss_val = loss.item() * grad_accum
-                logger.info("opt_step=%d  train_loss=%.4f  val_loss=%.4f",
-                            self._opt_step, train_loss_val, val_loss)
-                if self._use_wandb:
-                    wandb.log({"train_loss": train_loss_val, "val_loss": val_loss,
-                               "lr": self.scheduler.get_last_lr()[0]}, step=self._opt_step)
-                self.model.train()
+                if self._opt_step % self.cfg.get("eval_interval", 500) == 0:
+                    val_loss = evaluate(self.model, self._val_batches, self.device,
+                                        use_amp=self._use_amp, amp_dtype=self._amp_dtype)
+                    train_loss_val = loss.item() * grad_accum
+                    logger.info("opt_step=%d  train_loss=%.4f  val_loss=%.4f",
+                                self._opt_step, train_loss_val, val_loss)
+                    if self._use_wandb:
+                        wandb.log({"train_loss": train_loss_val, "val_loss": val_loss,
+                                   "lr": self.scheduler.get_last_lr()[0]}, step=self._opt_step)
+                    self.model.train()
 
-            if self._opt_step % self.cfg.get("save_interval", 2000) == 0 and self._opt_step > 0:
-                self._save_checkpoint(checkpoint_dir)
+                if self._opt_step % self.cfg.get("save_interval", 2000) == 0:
+                    self._save_checkpoint(checkpoint_dir)
 
             self._step += 1
 
