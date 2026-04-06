@@ -1,6 +1,6 @@
 # TinyLLM From Scratch
 
-Training a ~300M-parameter transformer language model from scratch on the [SlimPajama-6B](https://huggingface.co/datasets/DKYoon/SlimPajama-6B) dataset.
+Training a ~400M-parameter transformer language model from scratch on the [SlimPajama-6B](https://huggingface.co/datasets/DKYoon/SlimPajama-6B) dataset.
 
 ## Pipeline
 

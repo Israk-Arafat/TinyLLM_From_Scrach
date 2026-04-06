@@ -1,30 +1,54 @@
-"""Decoder-only transformer (~300M parameter target)."""
+"""Decoder-only transformer with RoPE, RMSNorm, and SwiGLU (LLaMA-style)."""
 from __future__ import annotations
+
+import math
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .attention import CausalSelfAttention
+from .attention import CausalSelfAttention, precompute_rope_freqs
 from .embeddings import Embeddings
 from .config import ModelConfig
+
+
+class RMSNorm(nn.Module):
+    """RMS normalisation — faster than LayerNorm (no mean centering, no bias)."""
+
+    def __init__(self, d_model: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(d_model))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return x * rms * self.weight
+
+
+class SwiGLU(nn.Module):
+    """SwiGLU feed-forward: SiLU(xW1) ⊙ (xW3), projected back by W2.
+    Uses 3 matrices at 2/3 the width of a standard 2-matrix FFN for equal parameter count."""
+
+    def __init__(self, d_model: int, d_ff: int) -> None:
+        super().__init__()
+        self.w1 = nn.Linear(d_model, d_ff, bias=False)
+        self.w2 = nn.Linear(d_ff, d_model, bias=False)
+        self.w3 = nn.Linear(d_model, d_ff, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TransformerBlock(nn.Module):
     def __init__(self, cfg: ModelConfig) -> None:
         super().__init__()
-        self.ln1 = nn.LayerNorm(cfg.d_model)
+        self.ln1 = RMSNorm(cfg.d_model)
         self.attn = CausalSelfAttention(cfg.d_model, cfg.n_heads, cfg.dropout)
-        self.ln2 = nn.LayerNorm(cfg.d_model)
-        self.ff = nn.Sequential(
-            nn.Linear(cfg.d_model, cfg.d_ff, bias=False),
-            nn.GELU(),
-            nn.Linear(cfg.d_ff, cfg.d_model, bias=False),
-            nn.Dropout(cfg.dropout),
-        )
+        self.ln2 = RMSNorm(cfg.d_model)
+        self.ff = SwiGLU(cfg.d_model, cfg.d_ff)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln1(x))
+    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+        x = x + self.attn(self.ln1(x), freqs_cis)
         x = x + self.ff(self.ln2(x))
         return x
 
@@ -33,24 +57,34 @@ class Transformer(nn.Module):
     def __init__(self, cfg: ModelConfig) -> None:
         super().__init__()
         self.cfg = cfg
-        self.embeddings = Embeddings(cfg.vocab_size, cfg.d_model, cfg.context_length, cfg.dropout)
+        self.embeddings = Embeddings(cfg.vocab_size, cfg.d_model, cfg.dropout)
         self.blocks = nn.ModuleList([TransformerBlock(cfg) for _ in range(cfg.n_layers)])
-        self.ln_f = nn.LayerNorm(cfg.d_model)
+        self.ln_f = RMSNorm(cfg.d_model)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
 
         if cfg.tie_weights:
             self.lm_head.weight = self.embeddings.token_emb.weight
 
+        # Precompute RoPE freqs once; register as non-persistent buffer so it
+        # moves with the model to the correct device automatically.
+        freqs_cis = precompute_rope_freqs(
+            cfg.d_model // cfg.n_heads, cfg.context_length, cfg.rope_theta
+        )
+        self.register_buffer("freqs_cis", freqs_cis, persistent=False)
+
         self._init_weights()
 
     def _init_weights(self) -> None:
-        for module in self.modules():
+        std = 0.02
+        # Scale down residual output projections to stabilise the residual stream
+        # at initialisation (GPT-2 paper: 1/sqrt(2*n_layers)).
+        residual_std = std / math.sqrt(2 * self.cfg.n_layers)
+        for name, module in self.named_modules():
             if isinstance(module, nn.Linear):
-                nn.init.normal_(module.weight, mean=0.0, std=0.02)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
+                init_std = residual_std if name.endswith(("out_proj", "w2")) else std
+                nn.init.normal_(module.weight, mean=0.0, std=init_std)
             elif isinstance(module, nn.Embedding):
-                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                nn.init.normal_(module.weight, mean=0.0, std=std)
 
     def forward(
         self,
@@ -59,7 +93,7 @@ class Transformer(nn.Module):
     ) -> dict[str, torch.Tensor]:
         x = self.embeddings(input_ids)
         for block in self.blocks:
-            x = block(x)
+            x = block(x, self.freqs_cis)
         x = self.ln_f(x)
         logits = self.lm_head(x)
 

@@ -14,6 +14,10 @@ from dotenv import load_dotenv
 # Load .env
 load_dotenv()
 
+# Too many HTTP request logs from the HuggingFace streaming dataloader
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # Allow imports from project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
