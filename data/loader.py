@@ -33,6 +33,8 @@ def build_dataloaders(data_cfg: dict, batch_size: int = 1) -> tuple[DataLoader, 
             if text is None:
                 continue
             token_ids = tokenizer.encode(text)
+            # Append EOS so the model learns document boundaries inside packed chunks
+            token_ids.append(tokenizer.eos_token_id)
             chunks = packer.add(token_ids)
             yield from chunks
         yield from packer.flush()

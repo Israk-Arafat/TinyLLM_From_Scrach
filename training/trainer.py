@@ -38,7 +38,8 @@ class Trainer:
         self.val_loader = val_loader
         self.cfg = cfg
         self.device = device
-        self._step = 0
+        self._step = 0       # micro-batch counter
+        self._opt_step = 0   # optimizer-update counter (used for eval/save intervals)
 
         self._use_amp = cfg.get("use_amp", True) and device.type == "cuda"
         # bfloat16 is preferred on A100 (no overflow risk, no loss scaling needed)
@@ -65,7 +66,8 @@ class Trainer:
         if "scheduler_state_dict" in ckpt:
             self.scheduler.load_state_dict(ckpt["scheduler_state_dict"])
         self._step = ckpt.get("step", 0)
-        logger.info("Resumed training from %s at step %d", path, self._step)
+        self._opt_step = ckpt.get("opt_step", 0)
+        logger.info("Resumed training from %s at step %d (opt_step %d)", path, self._step, self._opt_step)
 
     def _prefetch_val_batches(self) -> None:
         max_val_batches = self.cfg.get("max_val_batches", 100)
@@ -109,31 +111,42 @@ class Trainer:
                 self.optimizer.step()
                 self.scheduler.step()
                 self.optimizer.zero_grad()
+                self._opt_step += 1
 
-            if self._step % self.cfg.get("eval_interval", 500) == 0 and self._step > 0:
+            if self._opt_step % self.cfg.get("eval_interval", 500) == 0 and self._opt_step > 0:
                 val_loss = evaluate(self.model, self._val_batches, self.device,
                                     use_amp=self._use_amp, amp_dtype=self._amp_dtype)
                 train_loss_val = loss.item() * grad_accum
-                logger.info("step=%d  train_loss=%.4f  val_loss=%.4f",
-                            self._step, train_loss_val, val_loss)
+                logger.info("opt_step=%d  train_loss=%.4f  val_loss=%.4f",
+                            self._opt_step, train_loss_val, val_loss)
                 if self._use_wandb:
                     wandb.log({"train_loss": train_loss_val, "val_loss": val_loss,
-                               "lr": self.scheduler.get_last_lr()[0]}, step=self._step)
+                               "lr": self.scheduler.get_last_lr()[0]}, step=self._opt_step)
                 self.model.train()
 
-            if self._step % self.cfg.get("save_interval", 2000) == 0 and self._step > 0:
+            if self._opt_step % self.cfg.get("save_interval", 2000) == 0 and self._opt_step > 0:
                 self._save_checkpoint(checkpoint_dir)
 
             self._step += 1
 
+        # Flush any gradients accumulated in a partial cycle at the end of training
+        pending = self._step % grad_accum
+        if pending != 0:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
+            self.optimizer.step()
+            self.scheduler.step()
+            self.optimizer.zero_grad()
+            self._opt_step += 1
+
         self._save_checkpoint(checkpoint_dir, name="final")
 
     def _save_checkpoint(self, checkpoint_dir: Path, name: str | None = None) -> None:
-        fname = f"step_{self._step}.pt" if name is None else f"{name}.pt"
+        fname = f"step_{self._opt_step}.pt" if name is None else f"{name}.pt"
         path = checkpoint_dir / fname
         torch.save(
             {
                 "step": self._step,
+                "opt_step": self._opt_step,
                 "model_state_dict": self.model.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
                 "scheduler_state_dict": self.scheduler.state_dict(),

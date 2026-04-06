@@ -16,11 +16,6 @@ class TokenPacker:
         return self._emit()
 
     def flush(self) -> list[list[int]]:
-        """Return the remaining partial chunk (padded) if non-empty."""
-        if len(self._buffer) > 1:
-            chunk = self._buffer[: self.chunk_size + 1]
-            self._buffer = []
-            return [chunk]
         self._buffer = []
         return []
 

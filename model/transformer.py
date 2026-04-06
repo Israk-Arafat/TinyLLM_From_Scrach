@@ -43,7 +43,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, cfg: ModelConfig) -> None:
         super().__init__()
         self.ln1 = RMSNorm(cfg.d_model)
-        self.attn = CausalSelfAttention(cfg.d_model, cfg.n_heads, cfg.dropout)
+        self.attn = CausalSelfAttention(cfg.d_model, cfg.n_heads, cfg.n_kv_heads, cfg.dropout)
         self.ln2 = RMSNorm(cfg.d_model)
         self.ff = SwiGLU(cfg.d_model, cfg.d_ff)
 

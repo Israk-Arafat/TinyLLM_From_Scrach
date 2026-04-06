@@ -17,6 +17,7 @@ def tiny_cfg() -> ModelConfig:
         context_length=16,
         d_model=64,
         n_heads=4,
+        n_kv_heads=2,
         n_layers=2,
         d_ff=128,
         dropout=0.0,

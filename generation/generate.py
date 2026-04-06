@@ -13,6 +13,10 @@ def _apply_sampling(
     top_k: int,
     top_p: float,
 ) -> torch.Tensor:
+    if temperature <= 0.0:
+        # Greedy: return a one-hot distribution at the argmax position
+        next_token = logits.argmax(dim=-1, keepdim=True)
+        return torch.full_like(logits, float("-inf")).scatter_(-1, next_token, 0.0)
     if temperature != 1.0:
         logits = logits / temperature
     if top_k > 0:

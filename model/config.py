@@ -10,11 +10,12 @@ class ModelConfig:
     context_length: int = 2048
     d_model: int = 1024
     n_heads: int = 16
+    n_kv_heads: int = 4    # GQA: 4 KV heads shared across 16 Q heads → 4× smaller KV cache
     n_layers: int = 24
     d_ff: int = 2816
-    dropout: float = 0.1
+    dropout: float = 0.0
     tie_weights: bool = True
-    rope_theta: float = 10000.0  # RoPE base frequency
+    rope_theta: float = 500000.0  # RoPE base frequency
 
     @classmethod
     def from_dict(cls, cfg: dict) -> "ModelConfig":
