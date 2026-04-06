@@ -37,7 +37,7 @@ class Trainer:
         self._use_amp = cfg.get("use_amp", True) and device.type == "cuda"
         # bfloat16 is preferred on A100 (no overflow risk, no loss scaling needed)
         self._amp_dtype = torch.bfloat16
-        self._scaler = torch.cuda.amp.GradScaler(enabled=False)  # not needed for bfloat16
+        self._scaler = torch.amp.GradScaler("cuda", enabled=False)  # not needed for bfloat16
 
         # Validation batches are pre-materialised once to avoid re-streaming from HF
         self._val_batches: List[dict] | None = None
@@ -49,7 +49,8 @@ class Trainer:
         for i, batch in enumerate(self.val_loader):
             if i >= max_val_batches:
                 break
-            self._val_batches.append({k: v.to(self.device) for k, v in batch.items()})
+            # Keep on CPU to save VRAM; move to device per-batch during eval
+            self._val_batches.append({k: v for k, v in batch.items()})
         logger.info("Cached %d validation batches", len(self._val_batches))
 
     def train(self) -> None:

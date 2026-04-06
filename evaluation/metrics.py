@@ -22,8 +22,8 @@ def evaluate(
     total_loss = 0.0
     count = 0
     for batch in val_batches:
-        input_ids = batch["input_ids"].to(device)
-        labels = batch["labels"].to(device)
+        input_ids = batch["input_ids"].to(device, non_blocking=True)
+        labels = batch["labels"].to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
             outputs = model(input_ids, labels=labels)
         total_loss += outputs["loss"].item()

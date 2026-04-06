@@ -41,13 +41,18 @@ python scripts/generate.py --prompt "Once upon a time"
 ```
 
 # For Google Colab
-!git clone https://github.com/Israk-Arafat/TinyLLM_From_Scrach.git
-%cd TinyLLM_From_Scrach
-!pip install -r requirements.txt
-import torch
-print(torch.cuda.is_available()) 
+import os
+if os.path.exists("TinyLLM_From_Scrach"):
+    %cd TinyLLM_From_Scrach
+    !git pull
+else:
+    !git clone https://github.com/Israk-Arafat/TinyLLM_From_Scrach.git
+    %cd TinyLLM_From_Scrach
+
+!pip install -r requirements.txt -q
 
 # Add HF_TOKEN in .env file
+%%writefile .env
 HF_TOKEN=hf_your_token_here
 
 # train, pointing checkpoints at Drive
