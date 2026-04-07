@@ -113,6 +113,11 @@ class Trainer:
                 self.optimizer.zero_grad()
                 self._opt_step += 1
 
+                if self._opt_step % self.cfg.get("log_interval", 10) == 0:
+                    logger.info("opt_step=%d  train_loss=%.4f  lr=%.2e",
+                                self._opt_step, loss.item() * grad_accum,
+                                self.scheduler.get_last_lr()[0])
+
                 if self._opt_step % self.cfg.get("eval_interval", 500) == 0:
                     val_loss = evaluate(self.model, self._val_batches, self.device,
                                         use_amp=self._use_amp, amp_dtype=self._amp_dtype)
