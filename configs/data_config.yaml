@@ -1,7 +1,7 @@
 data:
   dataset_name: DKYoon/SlimPajama-6B
-  streaming: true
-  split: train
+  streaming: false # downloads to local disk — 100x faster than HTTP streaming
+  split: train[:50%] # ~3B tokens, enough for 25K steps; saves download time
   val_split: validation
   tokenizer_name: cl100k_base
   chunk_size: 2048
