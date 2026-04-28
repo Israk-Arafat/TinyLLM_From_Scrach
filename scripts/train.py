@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import random
 import sys
 from pathlib import Path
+
+# Reduce CUDA allocator fragmentation — helps when reserved-but-unallocated
+# memory cannot satisfy new allocations due to non-contiguous free blocks.
+os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 import yaml

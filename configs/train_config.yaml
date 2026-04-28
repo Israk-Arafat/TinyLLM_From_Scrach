@@ -2,8 +2,8 @@ training:
   seed: 42
   max_steps: 25000
   warmup_steps: 500
-  batch_size: 64 # per-step batch; effective = batch_size × grad_accum = 128
-  gradient_accumulation_steps: 2 # 64×2=128 — only 2 data fetches per opt step vs 32 original
+  batch_size: 48 # per-step batch; effective = batch_size × grad_accum = 144
+  gradient_accumulation_steps: 3 # 48×3=144 — lower peak VRAM per forward pass, similar effective batch
   learning_rate: 3.0e-4
   weight_decay: 0.1
   max_grad_norm: 1.0
