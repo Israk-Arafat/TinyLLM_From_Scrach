@@ -14,6 +14,7 @@ training:
   checkpoint_dir: checkpoints/
   log_dir: logs/
   use_amp: true # bfloat16 autocast — ~2× faster on A100, no loss scaling needed
+  gradient_checkpointing: true # recompute activations during backward; ~40% less VRAM, ~20% slower
   compile: false # set to true after first run to use cached compiled kernels
   use_wandb: false
   wandb_project: tinyllm

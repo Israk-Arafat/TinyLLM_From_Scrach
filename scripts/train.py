@@ -81,6 +81,10 @@ def main() -> None:
         logging.info("Compiling model with torch.compile...")
         model = torch.compile(model)
 
+    if train_cfg.get("gradient_checkpointing", False):
+        model.gradient_checkpointing = True
+        logging.info("Gradient checkpointing enabled — activations recomputed during backward")
+
     batch_size = train_cfg.get("batch_size", 1)
     train_loader, val_loader = build_dataloaders(data_cfg, batch_size=batch_size)
 

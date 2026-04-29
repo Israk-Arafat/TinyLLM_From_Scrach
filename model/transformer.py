@@ -6,6 +6,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
 from .attention import CausalSelfAttention, precompute_rope_freqs
 from .embeddings import Embeddings
@@ -71,6 +72,8 @@ class Transformer(nn.Module):
         if cfg.tie_weights:
             self.lm_head.weight = self.embeddings.token_emb.weight
 
+        self.gradient_checkpointing = False
+
         # Precompute RoPE freqs once; register as non-persistent buffer so it
         # moves with the model to the correct device automatically.
         freqs_cis = precompute_rope_freqs(
@@ -108,7 +111,16 @@ class Transformer(nn.Module):
         new_past_kv: list = []
         for i, block in enumerate(self.blocks):
             layer_past = past_kv[i] if past_kv is not None else None
-            x, layer_kv = block(x, freqs_slice, past_kv=layer_past)
+            if self.gradient_checkpointing and self.training and not use_cache:
+                # Wrap block so checkpoint can call it with positional args only.
+                # use_reentrant=False is the modern path and handles autocast correctly.
+                def _block_forward(b, _x, _f):
+                    out, _kv = b(_x, _f, past_kv=None)
+                    return out
+                x = grad_checkpoint(_block_forward, block, x, freqs_slice, use_reentrant=False)
+                layer_kv = None  # KV cache not used during training
+            else:
+                x, layer_kv = block(x, freqs_slice, past_kv=layer_past)
             if use_cache:
                 new_past_kv.append(layer_kv)
 
