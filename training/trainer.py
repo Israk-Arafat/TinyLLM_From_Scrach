@@ -1,9 +1,11 @@
 """Main training loop."""
 from __future__ import annotations
 
+import csv
 import logging
+import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import torch
 from torch.utils.data import DataLoader
@@ -48,6 +50,25 @@ class Trainer:
         # Validation batches are pre-materialised once to avoid re-streaming from HF
         self._val_batches: List[dict] | None = None
 
+        # CSV training log — written every log_interval, zero GPU overhead
+        log_dir = Path(cfg.get("log_dir", "logs"))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self._csv_path = log_dir / "training_log.csv"
+        self._csv_fields = [
+            "opt_step", "tokens_seen", "train_loss", "val_loss",
+            "lr", "grad_norm", "tokens_per_sec",
+        ]
+        # Only write header on a fresh run; resume appends to existing file
+        if not self._csv_path.exists():
+            with open(self._csv_path, "w", newline="") as f:
+                csv.DictWriter(f, fieldnames=self._csv_fields).writeheader()
+
+        self._tokens_seen: int = 0
+        self._last_log_time: Optional[float] = None
+        self._last_log_tokens: int = 0
+        self._last_grad_norm: float = 0.0
+        self._last_val_loss: Optional[float] = None
+
         # W&B
         self._use_wandb = cfg.get("use_wandb", False) and _WANDB_AVAILABLE
         if self._use_wandb:
@@ -57,6 +78,27 @@ class Trainer:
                 resume="allow",
             )
             wandb.watch(self.model, log_freq=500)
+
+    def _write_csv_row(self, val_loss: Optional[float] = None) -> None:
+        now = time.time()
+        if self._last_log_time is not None and now > self._last_log_time:
+            tps = (self._tokens_seen - self._last_log_tokens) / (now - self._last_log_time)
+        else:
+            tps = 0.0
+        self._last_log_time = now
+        self._last_log_tokens = self._tokens_seen
+
+        row = {
+            "opt_step": self._opt_step,
+            "tokens_seen": self._tokens_seen,
+            "train_loss": round(self._last_train_loss, 6),
+            "val_loss": round(val_loss, 6) if val_loss is not None else "",
+            "lr": round(self._last_lr, 8),
+            "grad_norm": round(self._last_grad_norm, 6),
+            "tokens_per_sec": round(tps, 1),
+        }
+        with open(self._csv_path, "a", newline="") as f:
+            csv.DictWriter(f, fieldnames=self._csv_fields).writerow(row)
 
     def resume_from_checkpoint(self, path: str) -> None:
         """Load model, optimizer, scheduler and step counter from a saved checkpoint."""
@@ -99,6 +141,7 @@ class Trainer:
 
             input_ids = batch["input_ids"].to(self.device)
             labels = batch["labels"].to(self.device)
+            self._tokens_seen += input_ids.numel()  # B * T tokens per micro-batch
 
             with torch.autocast(device_type=self.device.type, dtype=self._amp_dtype, enabled=self._use_amp):
                 outputs = self.model(input_ids, labels=labels)
@@ -107,26 +150,35 @@ class Trainer:
             loss.backward()
 
             if (self._step + 1) % grad_accum == 0:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
+                self._last_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), max_grad_norm
+                ).item()
                 self.optimizer.step()
                 self.scheduler.step()
                 self.optimizer.zero_grad()
                 self._opt_step += 1
 
+                self._last_train_loss = loss.item() * grad_accum
+                self._last_lr = self.scheduler.get_last_lr()[0]
+
                 if self._opt_step % self.cfg.get("log_interval", 10) == 0:
-                    logger.info("opt_step=%d  train_loss=%.4f  lr=%.2e",
-                                self._opt_step, loss.item() * grad_accum,
-                                self.scheduler.get_last_lr()[0])
+                    logger.info("opt_step=%d  train_loss=%.4f  lr=%.2e  grad_norm=%.3f  tok/s=%.0f",
+                                self._opt_step, self._last_train_loss, self._last_lr,
+                                self._last_grad_norm,
+                                (self._tokens_seen - self._last_log_tokens) /
+                                max(1e-6, time.time() - (self._last_log_time or time.time() - 1)))
+                    self._write_csv_row()
 
                 if self._opt_step % self.cfg.get("eval_interval", 500) == 0:
                     val_loss = evaluate(self.model, self._val_batches, self.device,
                                         use_amp=self._use_amp, amp_dtype=self._amp_dtype)
-                    train_loss_val = loss.item() * grad_accum
                     logger.info("opt_step=%d  train_loss=%.4f  val_loss=%.4f",
-                                self._opt_step, train_loss_val, val_loss)
+                                self._opt_step, self._last_train_loss, val_loss)
+                    self._write_csv_row(val_loss=val_loss)
                     if self._use_wandb:
-                        wandb.log({"train_loss": train_loss_val, "val_loss": val_loss,
-                                   "lr": self.scheduler.get_last_lr()[0]}, step=self._opt_step)
+                        wandb.log({"train_loss": self._last_train_loss, "val_loss": val_loss,
+                                   "lr": self._last_lr, "grad_norm": self._last_grad_norm},
+                                  step=self._opt_step)
                     self.model.train()
 
                 if self._opt_step % self.cfg.get("save_interval", 2000) == 0:

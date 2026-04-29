@@ -10,7 +10,7 @@ training:
   log_interval: 10 # log train loss every N optimizer steps
   eval_interval: 500
   max_val_batches: 100
-  save_interval: 2000
+  save_interval: 300 # save every ~42 min (~30s overhead per save to Drive)
   checkpoint_dir: checkpoints/
   log_dir: logs/
   use_amp: true # bfloat16 autocast — ~2× faster on A100, no loss scaling needed
