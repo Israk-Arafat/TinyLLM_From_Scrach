@@ -95,6 +95,38 @@ class Transformer(nn.Module):
             elif isinstance(module, nn.Embedding):
                 nn.init.normal_(module.weight, mean=0.0, std=std)
 
+    def _chunked_cross_entropy(
+        self,
+        hidden: torch.Tensor,
+        labels: torch.Tensor,
+        chunk_size: int = 1024,
+    ) -> torch.Tensor:
+        """Compute cross-entropy loss without ever materialising the full [B*T, V] logits.
+
+        Projects hidden states to vocab logits in chunks of `chunk_size` tokens,
+        keeping peak VRAM at  chunk_size * vocab_size * dtype_bytes  instead of
+        B * T * vocab_size * dtype_bytes.
+        """
+        B, T, _ = hidden.shape
+        h2d = hidden.view(B * T, -1)          # [B*T, D]
+        lbl = labels.view(B * T)              # [B*T]
+
+        total_loss = hidden.new_zeros((), dtype=torch.float32)
+        n_valid = (lbl != -100).sum().clamp(min=1)
+
+        for start in range(0, B * T, chunk_size):
+            end = min(start + chunk_size, B * T)
+            chunk_logits = self.lm_head(h2d[start:end])          # [chunk, V]
+            chunk_loss = F.cross_entropy(
+                chunk_logits.float(),
+                lbl[start:end],
+                ignore_index=-100,
+                reduction="sum",
+            )
+            total_loss = total_loss + chunk_loss
+
+        return total_loss / n_valid
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -125,16 +157,16 @@ class Transformer(nn.Module):
                 new_past_kv.append(layer_kv)
 
         x = self.ln_f(x)
-        logits = self.lm_head(x)
 
-        result: dict[str, torch.Tensor] = {"logits": logits}
+        result: dict[str, torch.Tensor] = {}
         if labels is not None:
-            loss = F.cross_entropy(
-                logits.view(-1, self.cfg.vocab_size),
-                labels.view(-1),
-                ignore_index=-100,
-            )
-            result["loss"] = loss
+            # Compute loss in chunks — avoids materialising the full [B, T, V] logits
+            # tensor (~19 GB at batch=48, T=2048, V=100k) which would OOM.
+            result["loss"] = self._chunked_cross_entropy(x, labels)
+        else:
+            # Inference path: materialise logits in full for sampling / generation.
+            logits = self.lm_head(x)
+            result["logits"] = logits
         if use_cache:
             result["past_kv"] = new_past_kv
         return result
