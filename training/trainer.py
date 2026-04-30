@@ -50,18 +50,11 @@ class Trainer:
         # Validation batches are pre-materialised once to avoid re-streaming from HF
         self._val_batches: List[dict] | None = None
 
-        # CSV training log — written every log_interval, zero GPU overhead
-        log_dir = Path(cfg.get("log_dir", "logs"))
-        log_dir.mkdir(parents=True, exist_ok=True)
-        self._csv_path = log_dir / "training_log.csv"
+        self._csv_path: Optional[Path] = None  # set in train() once checkpoint_dir is known
         self._csv_fields = [
             "opt_step", "tokens_seen", "train_loss", "val_loss",
             "lr", "grad_norm", "tokens_per_sec",
         ]
-        # Only write header on a fresh run; resume appends to existing file
-        if not self._csv_path.exists():
-            with open(self._csv_path, "w", newline="") as f:
-                csv.DictWriter(f, fieldnames=self._csv_fields).writeheader()
 
         self._tokens_seen: int = 0
         self._last_log_time: Optional[float] = None
@@ -128,6 +121,14 @@ class Trainer:
         max_grad_norm = self.cfg.get("max_grad_norm", 1.0)
         checkpoint_dir = Path(self.cfg.get("checkpoint_dir", "checkpoints"))
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write CSV directly into checkpoint_dir (Drive) so it survives runtime restarts.
+        # Resume appends to the existing file; fresh run writes the header.
+        self._csv_path = checkpoint_dir / "training_log.csv"
+        if not self._csv_path.exists():
+            with open(self._csv_path, "w", newline="") as f:
+                csv.DictWriter(f, fieldnames=self._csv_fields).writeheader()
+        logger.info("Training log: %s", self._csv_path)
 
         # Pre-materialise validation set before training starts
         self._prefetch_val_batches()
